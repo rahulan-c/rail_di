@@ -1,13 +1,13 @@
 ---
-title: "DI analysis for rail schemes"
-author: "RC"
+title: "Assessing the distributional impacts of rail schemes"
+author: "Rahulan Chandrasekaran"
 date: "now"
 format:
   html:
     toc: true
     anchor-sections: true
     link-external-newwindow: true
-    code-fold: false
+    code-fold: true
     code-overflow: wrap
 execute: 
   cache: false
@@ -19,386 +19,162 @@ execute:
 
 ## Introduction
 
-We develop code to perform user benefits distributional impacts analysis (DIA) as described in [TAG Unit A4.2](https://www.gov.uk/government/publications/tag-unit-a4-2-distributional-impact-appraisal), and we will apply it to rail schemes modelled using MOIRA.
+This document explains how to perform distributional impacts analysis (DIA) on the modelled user (or direct transport) benefits of a rail intervention, in accordance with [TAG Unit A4.2](https://www.gov.uk/government/publications/tag-unit-a4-2-distributional-impact-appraisal). 
 
-The goal of user benefits DIA is to produce a table showing the amount and relative proportions of a scheme's user benefits that accrue to target LSOAs in each income deprivation quintile, which can be compared against each quintile's share of population. Then each quintile is assigned a score depending on the difference between its share of user benefits and population. A quintile with a higher share of user benefits compared to its share of population is given a positive score ranging from +1 to +3; quintiles with a lower share are given a negative score ranging from -1 to -3.
+The R code below has been developed specifically for rail schemes modelled with MOIRA or MOIRA2.
 
-User benefits DIA can be carried out for any type of proposed transport scheme. However, transport model zone boundary data is an important data input to the process, which makes it difficult to easily generalise any methods developed in R. Therefore, we will first develop a method for rail schemes that have been modelled using MOIRA, as that should provide reasonably consistent transport model geographies.  
+This analysis requires the user to provide two CSV files as inputs, each containing modelled estimates of changes in generalised journey time (in minutes) for pairs of origin and destination stations - described by their NLC identifiers - for trips of a specific journey purpose. One file should have modelled user benefits for commuting trips, and the other file should have the equivalent for leisure trips.^[This analysis does not use any data based on business trips, as business trip user benefits are not suitable for distributional impacts analysis.]
 
-## Method and data
+The code first converts the two sets of modelled GJT changes into monetised user benefits by station. For this step, the user benefits associated with a given pair of origin and destination stations is split equally between the origin and destination.^[This is in contrast to alternative assumptions typically used in the context of multi-modal transport models, such as assigning all of a link's benefits to the origin station (especially when the modelled time period is restricted to the morning peak).]
 
-1. Read data on scheme user benefits by station. If necessary, compute total monetised user benefits by station. 
-2. Read LSOA data on income deprivation quintile and population. 
-3. Translate user benefits by station to user benefits by LSOA after applying some assignment or spatial aggregation method.
-4. Produce DI appraisal table. 
-5. [Optional] Produce other related outputs, eg tables/maps of user benefits by MSOA/LAD/region.
+This yields estimates of user benefits by modelled station, which is then mapped to LSOAs using an assignment method where LSOAs with population-weighted centroids within a certain distance of a station are then paired with that station. Mapping user benefits to LSOAs allows for comparison against income deprivation data, which is also available at LSOA level. 
 
+Our final table summarises the distribution of scheme user benefits by LSOA across all five income deprivation quintiles (1 = most deprived 20%). Within the table, each quintile is assigned a grade based on its constituent impact area LSOAs' relative shares of modelled user benefits and population. 
 
-### Data
+That is, for all impact area LSOAs within an income deprivation quintile:
 
-- **MOIRA station IDs and coordinates**: at first, we'll use the data from the 2019 (?) modelling for TRU, but we will need to develop a comprehensive dataset based on ORR data. 
-- **Scheme user benefits by station (Do Something and Do Minimum)**: supplied by user, whether already monetised, or as minutes of generalised journey time (GJT) separately for commuting and leisure journeys.
-- **LSOA population**. As of July 2023, the most recent available ONS LSOA population estimates are [mid-2020 estimates](https://www.ons.gov.uk/file?uri=/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/lowersuperoutputareamidyearpopulationestimates/mid2020sape23dt2/sape23dt2mid2020lsoasyoaestimatesunformatted.xlsx) published in September 2021.
-- **LSOA income deprivation quintiles** from MHCLG's [2019 English indices of deprivation](https://www.gov.uk/government/statistics/english-indices-of-deprivation-2019).
-- **Values of time for commuting and leisure journeys**. We will assume these to be £9.95 and £4.54 respectively, in 2020 values and prices. Source: TAG Data Book v1.20.2 (Jan 2023).
-- **LSOA population-weighted centroids**. The most recent version of this dates from December 2011 ([link](https://geoportal.statistics.gov.uk/datasets/54a76a36e3b4420a9ea83fcf7994525d_0/)). 
+- A grade of ✔✔✔ is awarded if total quintile user benefits is positive and the quintile's share of user benefits is at least five percentage points greater than its share of population.
+- A grade of ✔✔ is awarded if total quintile user benefits is positive and the quintile's share of user benefits is within +/- five percentage points of its share of population.
+- A grade of ✔ is awarded if total quintile user benefits is positive and the quintile's share of user benefits is at least five percentage points lower than its share of population.
+- A neutral grade is awarded if there total quintile user benefits are neither positive nor negative.
+- A grade of     ❌❌ ❌ is awarded if total quintile user benefits is negative and the quintile's share of user benefits is at least five percentage points lower than its share of population.
+- A grade of ❌❌ is awarded if total quintile user benefits is  negative  and the quintile's share of user benefits is within +/- five percentage points of its share of population.
+- A grade of ❌❌❌ is awarded if total quintile user benefits is  negative  and the quintile's share of user benefits is  at least five percentage points higher than its share of population.
 
+## Data sources
 
+- User-supplied data on scheme benefits: 
+  - Format: 3 column CSV: origin station NLC; destination staion NLC; modelled change in generalised journey time (minutes) for journeys of a specific purpose (either commuting or leisure)
+  - Worked example: based on TRU 2019 analysis
+- Reference data on station NLCs and coordinates
+  - For the worked example, we will use the station coordinates and NLCs from the TRU scheme modelling.
+  - However, this will be replaced with a larger dataset constructed initially from ORR stations data.
+- Population by LSOA: ONS, 2020 mid-year population estimates (all ages), published in September 2021. Link to data: [.xlsx](https://www.ons.gov.uk/file?uri=/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/lowersuperoutputareamidyearpopulationestimates/mid2020sape23dt2/sape23dt2mid2020lsoasyoaestimatesunformatted.xlsx)
+- Income deprivation quintiles by LSOA, from the 2019 English indices of deprivation, published by MHCLG. [Link to IMD homepage](https://www.gov.uk/government/statistics/english-indices-of-deprivation-2019).
+- Population-weighted centroids by LSOA: available on the ONS Open Geography portal. [Link](https://geoportal.statistics.gov.uk/datasets/54a76a36e3b4420a9ea83fcf7994525d_0/).
+- Appraisal parameters: 
+  - Value of time for commuting journeys: £9.95, from the TAG Data Book.
+  - Value of time for leisure journeys: £4.54, from the TAG Data Book.
 
+## Code / outputs
 
-## Code
+First, we load the necessary R packages and define the distance to use for pairing LSOAs with stations.  
 
-After loading the necessary packages, we start by specifying all relevant user choices and other parameters:
-
-- The user's choice of "relevant modelled area" (default: all LSOAs in England) 
-- The buffer distance (in kilometres) to use when assigning LSOAs to stations (numeric, default: 5)
-- Whether user benefits by origin station for commuting trips are available  (boolean, default: T) 
-- Whether user benefits for commuting trips need to be monetised (boolean, default: T)
-- Data on user benefits by station for commuting trips
-- Whether user benefits by origin station for leisure trips are available (boolean, default: T)
-- Whether user benefits for leisure trips need to be monetised (boolean, default: T)
-- Data on user benefits by origin station for leisure trips
-
-Note that the code below has been optimised for the initial TRU worked example.
-
-```{r}
+```{r, include = FALSE}
 # Load packages
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(dplyr, tidyr, readr, data.table, glue, here, janitor, sf, cli, 
-               gt, tmap, geojsonio)
+               gt, tmap, geojsonio, stringr, assertthat)
 
 # User choices
-commuting_benefits_exist <- TRUE
+station_buffer <- 1500 # metres
+
 commuting_benefits_unmonetised <- TRUE
-leisure_benefits_available <- TRUE
 leisure_benefits_unmonetised <- TRUE
-modelled_area_regions <- "all"
-lsoa_buffer <- 1.5
-user_benefits_filename <- "user_benefits.csv"
-
-# Other inputs
-vot_commuting_tag <- 9.95
-vot_leisure_tag <- 4.54
-imd_filename <- "File_7_-_All_IoD2019_Scores__Ranks__Deciles_and_Population_Denominators_3.csv"
-stations_filename <- "uk-train-stations.csv"
-lsoa_pwc_filename <- "LSOA_Dec_2021_PWC_for_England_and_Wales_2022_1028145039677403461.csv"
-lsoa_pop_filename <- "lsoa21_pop_2020.csv"
-
-# LSOA lookups
-lsoa_lookups_2011_to_2021 <- "LSOA_(2011)_to_LSOA_(2021)_to_Local_Authority_District_(2022)_Lookup_for_England_and_Wales_(Version_2).csv"
-
-# Boundary data
-lsoa_pwc_boundaries <- "LSOA_Dec_2021_PWC_for_England_and_Wales_2022_-7534040603619445107.geojson"
-lsoa_boundaries <- "LSOA_Dec_2021_Boundaries_Generalised_Clipped_EW_BGC_V2_4490519673986712129.geojson"
-lad_boundaries <- "Local_Authority_Districts_May_2023_UK_BGC_7031345015360699935.geojson"
-region_boundaries <- "Regions_December_2022_EN_BGC_4589208765943883498.geojson" # England only
-country_boundaries <- "Countries_December_2022_GB_BGC_4494908105953014587.geojson"
-
-
 ```
 
-Next, we load the required input data - rail station coordinates, LSOA population and income deprivation quintiles.
+We read in the user-supplied scheme benefits data, assumed to be located in the relative paths `data/user_benefits_commuting.csv` and `data/user_benefits_leisure.csv`, before converting the estimated travel time savings to monetary values, summing across the two journey purposes, and aggregating the results by station. The first few rows of the resulting data is displayed at the end. 
 
 ```{r, eval = TRUE}
-# Read region/LSOA lookup data
-lsoas <- geojsonio::geojson_read(glue("{here()}/data/{lsoa_boundaries}"), what = "sp")
-lsoa_pwcs <- geojsonio::geojson_read(glue("{here()}/data/{lsoa_pwc_boundaries}"), what = "sp")
-lads <- geojsonio::geojson_read(glue("{here()}/data/{lad_boundaries}"), what = "sp")
-regions <- geojsonio::geojson_read(glue("{here()}/data/{region_boundaries}"), what = "sp")
-countries <- geojsonio::geojson_read(glue("{here()}/data/{country_boundaries}"), what = "sp")
+# Read data on modelled scheme GJT changes by purpose (commuting or leisure) 
+# for all modelled pairs of origin and destination stations, before monetising
+# GJT changes if necessary
 
-# Read and tidy required input data
+commuting_benefits_filename <- "user_benefits_commuting.csv"
+leisure_benefits_filename <- "user_benefits_leisure.csv"
+vot_commuting_tag <- 9.95
+vot_leisure_tag <- 4.54
 
-# (1) Rail station codes, names, and coordinates
-# Source: https://github.com/ellcom/UK-Train-Station-Locations
-# Convert coordinates from WGS84 (CRS 4326) to British National Grid (CRS 27700)
 
-# stations <- readr::read_csv(glue("{here()}/data/{stations_filename}")) %>%
-#   janitor::clean_names() %>%
-#   sf::st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
-#   sf::st_transform(crs = 27700)
-# stations$easting <- sf::st_coordinates(stations$geometry)[,1]
-# stations$northing <- sf::st_coordinates(stations$geometry)[,2]
-# stations <- stations %>%
-#   as_tibble() %>%
-#   dplyr::select("station_code" = x3alpha, station_name, easting, northing)
+ReadStationGJTCByPurpose <- function(data_path, filename, vot, to_monetise){
+  
+  bens <- readr::read_csv(glue("{data_path}{filename}"), 
+                  col_names = c("origin_tlc", "dest_tlc", "gjtc")) %>% 
+    mutate(gjtc =  gjtc * (vot/60) * to_monetise) %>% 
+    filter(!if_any(everything(), is.na))
+  
+  bens_orig <- bens %>% 
+    group_by(origin_tlc) %>%
+    summarise(gjtc = sum(gjtc, na.rm = T) / 2) %>% 
+    rename("tlc" = origin_tlc)
+  
+  bens_dest <- bens %>% 
+    group_by(dest_tlc) %>%
+    summarise(gjtc = sum(gjtc, na.rm = T) / 2) %>% 
+    rename("tlc" = dest_tlc)
+  
+  assertthat::are_equal(sum(bens$gjtc), 
+                        sum(bens_orig$gjtc) + sum(bens_dest$gjtc)) 
+  
+  bens_agg <- rbind(bens_orig, bens_dest)
+  return(bens_agg)
+}
+  
+commuting_bens <- ReadStationGJTCByPurpose(
+  data_path = glue("{here()}/data/"),
+  filename = commuting_benefits_filename,
+  vot = vot_commuting_tag,
+  to_monetise = commuting_benefits_unmonetised
+)
 
-# (2) Population-weighted centroids for LSOAs (Dec 2021)
-# Source: https://geoportal.statistics.gov.uk/datasets/ons::lsoa-dec-2021-pwc-for-england-and-wales/explore
-lsoa_pwc <- readr::read_csv(glue("{here()}/data/{lsoa_pwc_filename}")) %>% 
-  janitor::clean_names()
+leisure_bens <- ReadStationGJTCByPurpose(
+  data_path = glue("{here()}/data/"),
+  filename = leisure_benefits_filename,
+  vot = vot_leisure_tag,
+  to_monetise = leisure_benefits_unmonetised
+)
 
-# (3) Mid-year population (all ages) by 2021LSOA, 2020
+total_bens <- rbind(commuting_bens, leisure_bens) %>% 
+  group_by(tlc) %>% 
+  summarise(gjtc = sum(gjtc, na.rm = T)) %>% 
+  arrange(tlc)
+
+head(total_bens)
+```
+
+Next, we read in our reference data on station NLCs and coordinates. For the worked example, we will use a dataset constructed from the modelling of the scheme that provides the user benefits for our worked example. This is a subset of all non-closed rail stations in England, but this does not affect the analysis. However, in future we will replace this with a dataset built on ORR stations data.
+
+```{r}
+stations_filename <- "tru_stations.csv"
+stations <- readr::read_csv(glue("{here()}/data/{stations_filename}"), 
+                  col_names = c("name", "tlc", "easting", "northing")) %>% 
+  filter(!if_any(everything(), is.na)) %>% 
+  distinct(.keep_all = T) %>% 
+  dplyr::inner_join(total_bens, by = c("tlc")) %>% 
+  mutate(gjtc = gjtc * -1)
+
+head(stations)
+```
+
+
+Next, we need LSOA population data.
+
+```{r}
+# Population (all ages) in mid-2020 by 2011 LSOA
 # Source: ONS (https://www.ons.gov.uk/file?uri=/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/lowersuperoutputareamidyearpopulationestimates/mid2020sape23dt2/sape23dt2mid2020lsoasyoaestimatesunformatted.xlsx, sheet: "Mid-2020 Persons", cols A-G)
+lsoa_pop_filename <- "lsoa11_pop_2020.csv"
 lsoa_pop <- readr::read_csv(glue("{here()}/data/{lsoa_pop_filename}")) %>% 
-  janitor::clean_names()
+  janitor::clean_names() %>% 
+  select(lsoa_code, "pop" = all_ages) %>% 
+  rename("lsoa11cd" = lsoa_code) %>% 
+  as.data.table()
 
-# (4) LSOA income deprivation quintiles, 2019
+head(lsoa_pop)
+```
+
+
+
+Followed by LSOA income deprivation quintile data, which requires converting deciles to quintiles. 
+
+
+```{r}
+# LSOA income deprivation quintiles, 2019
 # Source: MHCLG, English indices of deprivation 2019
+imd_filename <- "File_7_-_All_IoD2019_Scores__Ranks__Deciles_and_Population_Denominators_3.csv"
 imd <- readr::read_csv(glue("{here()}/data/{imd_filename}")) %>% 
   janitor::clean_names() %>% 
   select(lsoa_code_2011, 
-         "income_decile" = income_decile_where_1_is_most_deprived_10_percent_of_lso_as)
-```
-
-We then read in the (user-supplied) scheme user benefits data. The worked example uses TRU data, so the code reflects the particular structure of this data, and will need to be revised to accommodate alternative inputs (which is straightforward).
-
-Note that for every modelled pair of origin and destination stations, half the associated time savings are attributed to each end, in line with recommended practice for MOIRA-based schemes.
-
-```{r}
-# Read scheme user benefits data
-user_benefits <- readr::read_csv(glue("{here()}/data/{user_benefits_filename}")) %>% 
-  janitor::clean_names()
-
-# Assign half of each link's time savings to the origin station
-user_benefits_cleaned_byorigin <- user_benefits %>% 
-  select(orig_tlc, dest_tlc, journey_purpose, "change_gjt" = total_change_in_gjtc) %>% 
-  group_by(orig_tlc, journey_purpose) %>% 
-  summarise(total_change_gjt = sum(change_gjt) / 2) %>% 
-  filter(journey_purpose != "Business") %>% # not needed for DIA
-  tidyr::pivot_wider(names_from = journey_purpose,
-                     values_from = total_change_gjt)
-
-# Assign half of each link's time savings to the destination station
-user_benefits_cleaned_bydest <- user_benefits %>% 
-  select(orig_tlc, dest_tlc, journey_purpose, "change_gjt" = total_change_in_gjtc) %>% 
-  group_by(dest_tlc, journey_purpose) %>% 
-  summarise(total_change_gjt = sum(change_gjt) / 2) %>% 
-  filter(journey_purpose != "Business") %>% # not needed for DIA
-  tidyr::pivot_wider(names_from = journey_purpose,
-                     values_from = total_change_gjt)
-
-user_benefits_cleaned <- rbind(
-  tibble::tibble(
-    tlc = user_benefits_cleaned_byorigin$orig_tlc,
-    Commuting = user_benefits_cleaned_byorigin$Commuting,
-    Leisure = user_benefits_cleaned_byorigin$Leisure
-  ),
-  tibble::tibble(
-    tlc = user_benefits_cleaned_bydest$dest_tlc,
-    Commuting = user_benefits_cleaned_bydest$Commuting,
-    Leisure = user_benefits_cleaned_bydest$Leisure
-  )
-)
-
-user_benefits_cleaned <- user_benefits_cleaned %>% 
-  group_by(tlc) %>% 
-  summarise(Commuting = sum(Commuting, na.rm = T),
-            Leisure = sum(Leisure, na.rm = T))
-```
-
-
-```{r, eval = FALSE, include=FALSE}
-# Alternative source of stations data
-# Use the codes and coordinates in TRU's user benefits data
-# STOPGAP SOLUTION: NEED TO FIND STHG BETTER IN THE LONG RUN
-stations_2 <- rbind(
-  tibble("name" = user_benefits$orig_name, 
-         "station_code" = user_benefits$orig_tlc, 
-         "easting" = user_benefits$orig_easting, 
-         "northing" = user_benefits$orig_northing),
-  tibble("name" = user_benefits$dest_name, 
-         "station_code" = user_benefits$dest_tlc, 
-         "easting" = user_benefits$dest_easting, 
-         "northing" = user_benefits$dest_northing)
-)
-
-stations_2 <- stations_2 %>% 
-  filter(!if_any(everything(), is.na)) %>% 
-  distinct(.keep_all = T)
-
-stations <- stations_2
-
-# head(stations_2)
-
-# For the TRU example, we need to identify the stations in their analysis that aren't in our 
-# original 'stations' data and add them in.
-# TODO
-# need to do another distance calculation between original stations data and TRU stations, 
-# then replace "missing" TRU stations with their closest counterpart in the original stations data.
-
-```
-
-As a quick check, let's map the coordinates of our stations and LSOA centroid data.
-
-```{r, eval = FALSE}
-# Make stations and LSOA centroid map
-
-# Convert stations data for mapping
-stations_formap <- stations %>% 
-  sf::st_as_sf(coords = c("easting", "northing"), crs = 27700) %>%
-  sf::st_transform(crs = 4326)
-
-```
-
-
-```{r, eval = FALSE}
-# Make map
-
-tmap_options(check.and.fix = T)
-
-stations_map <- tm_shape(subset(countries, countries$CTRY22NM == "England"),
-                         is.master = T) +
-  tm_borders() +
-  tm_shape(lsoas) +
-    tm_borders() +
-  tm_shape(lsoa_pwcs) +
-    tm_dots(col = "blue", size = 0.015) +
-  tm_shape(stations_formap) +
-    tm_dots(col = "red", size = 0.025)
-
-tmap_mode("view")
-stations_map
-```
-
-
-```{r}
-# Make map of Merseyside stations
-
-bankhall <- stations_formap %>% filter(name %in% c("Bank Hall"))
-bankhall_buffer <- st_buffer(bankhall, dist = 1500)
-
-sandhills <- stations_formap %>% filter(name %in% c("Sandhills"))
-sandhills_buffer <- st_buffer(sandhills, dist = 1500)
-
-lsoas_formap_2 <- st_as_sf(lsoas) %>% 
-  dplyr::filter(stringr::str_detect(LSOA21NM, "Liverpool|Sefton"))
-
-
-  
-tm_shape(lsoas_formap_2) +
-  tm_borders() +
-  tm_shape(bankhall) +
-    tm_dots(col = "red") +
-  tm_shape(sandhills) +
-    tm_dots(col = "red") +
-  tm_shape(bankhall_buffer) +
-  tm_polygons(col = "blue", alpha = 0.2) +
-  tm_shape(sandhills_buffer) +
-  tm_polygons(col = "green", alpha = 0.2)
-
-```
-
-
-
-Next, we have to assign LSOAs to stations. We do this by first computing straight-line distances between all pairs of stations and LSOAs in our input data, before filtering the data to exclude any pairs with distances greater than our preferred buffer. Then we can assign each LSOA to its closest station.
-
-```{r}
-# Combine station and LSOA coordinate data
-stations_lsoas <- tidyr::expand_grid("station_code" = stations$station_code, 
-                                         "lsoa21cd" = lsoa_pwc$lsoa21cd) 
-
-# Add station coordinates
-stations_lsoas <- dplyr::left_join(stations_lsoas, stations, c("station_code"))
-
-# Add LSOA centroid coordinates
-stations_lsoas <- dplyr::left_join(stations_lsoas, lsoa_pwc, c("lsoa21cd"))
-
-# Get final combined data
-stations_lsoas <- stations_lsoas %>% 
-  select(station_code, "station_x" = easting, "station_y" = northing, 
-         lsoa21cd, "lsoa_x" = x, "lsoa_y" = y) %>% 
-  mutate(dist = (((station_x - lsoa_x) ^ 2) + ((station_y - lsoa_y) ^ 2)) ^ 0.5) %>% 
-  filter(dist <= lsoa_buffer * 1000)
-
-# # Assign LSOAs to closest station
-# lsoas_assigned <- stations_lsoas %>% 
-#   group_by(lsoa21cd) %>% 
-#   summarise(closest_station = min(dist))
-# 
-# final <- dplyr::left_join(lsoas_assigned, stations_lsoas, 
-#                                    c("lsoa21cd", "closest_station" = "dist")) %>% 
-#   select(lsoa21cd, station_code, lsoa_x, lsoa_y, station_x, station_y, "dist" = closest_station)
-
-final <- stations_lsoas
-
-# rm(stations_lsoas, lsoas_assigned)
-```
-
-```{r}
-# Now plot the Sandhills and Bank Hall station LSOAs under the current method
-
-# lsoas_formap_3 <- st_as_sf(lsoas)
-bankhall_lsoas <- final %>% 
-  filter(station_code == "BAH") %>% 
-  select(lsoa21cd) %>% 
-  dplyr::pull()
-bankhall_lsoas <- lsoas_formap_3 %>% 
-  filter(LSOA21CD %in% bankhall_lsoas)
-  
-sandhills_lsoas <- final %>% 
-  filter(station_code == "SDL") %>% 
-  select(lsoa21cd) %>% 
-  dplyr::pull()
-sandhills_lsoas <- lsoas_formap_3 %>% 
-  filter(LSOA21CD %in% sandhills_lsoas)
-  
-
-bankhall <- stations_formap %>% filter(name %in% c("Bank Hall"))
-bankhall_buffer <- st_buffer(bankhall, dist = 1500)
-
-sandhills <- stations_formap %>% filter(name %in% c("Sandhills"))
-sandhills_buffer <- st_buffer(sandhills, dist = 1500)
-
-  
-tm_shape(bankhall_lsoas) +
-  tm_polygons(col = "blue", alpha = 0.2) +
-  tm_shape(sandhills_lsoas) +
-  tm_polygons(col = "green", alpha = 0.2) +
-  tm_shape(bankhall) +
-    tm_dots(col = "red") +
-  tm_shape(sandhills) +
-    tm_dots(col = "red") +
-  tm_shape(bankhall_buffer) +
-  tm_borders(col = "blue") +
-  tm_shape(sandhills_buffer) +
-  tm_borders(col = "green")
-
-```
-
-
-We now have a dataset that includes all relevant LSOAs and their assigned stations. To this we now add: LSOA population, LSOA income deprivation decile, assigned station population (summed across all linked LSOAs), and monetised user benefits (after first monetising the benefits associated with commuting and leisure trips separately).
-
-Finally, we compute the values for the final DI table, and use these to produce a formatted table for reporting. 
-
-```{r}
-# Add LSOA population data
-final <- dplyr::left_join(final, lsoa_pop, c("lsoa21cd" = "lsoa_code"))
-colnames(final)[8] <- "la_name"
-colnames(final)[10] <- "lsoa_pop" 
-
-# Add LSOA income deprivation decile
-final <- dplyr::left_join(final, imd, c("lsoa11cd" = "lsoa_code_2011"))
-
-# Add total station pop
-final <- final %>% 
-  group_by(station_code) %>% 
-  mutate(station_pop = sum(lsoa_pop)) %>% 
-  ungroup() %>% 
-  mutate(lsoa_pop_share = lsoa_pop / station_pop)
-
-# Add user benefits
-final <- dplyr::left_join(final, user_benefits_cleaned,
-                          c("station_code" = "tlc")) %>% 
-  rename("commuting_gjtc" = Commuting, "leisure_gjtc" = Leisure) 
-
-
-
-# Monetise user benefits
-# Currently assumes they're in GJT
-# TODO: add earlier checks and alternate logic
-final <- final %>% 
-  mutate(commuting_gjtc = commuting_gjtc * vot_commuting_tag * lsoa_pop_share * -1,
-         leisure_gjtc = leisure_gjtc * vot_leisure_tag * lsoa_pop_share * -1,
-         total_user_bens = commuting_gjtc + leisure_gjtc)
-
-# # Remove NA values
-# Rows with Welsh LSOAs will be removed because they don't have IMD income deprivation data
-final_di <- final %>%
-  filter(!if_any(everything(), is.na))
-
-# Add column for income deprivation quintile
-final_di <- final_di %>% 
+         "income_decile" = income_decile_where_1_is_most_deprived_10_percent_of_lso_as) %>% 
   mutate(income_quintile = case_when(
     income_decile >= 9 ~ 5,
     income_decile >= 7 ~ 4,
@@ -406,79 +182,204 @@ final_di <- final_di %>%
     income_decile >= 3 ~ 2,
     income_decile >= 1 ~ 1,
     TRUE ~ NA_integer_
-  ))
+  )) %>% 
+  rename("lsoa11cd" = lsoa_code_2011) %>% 
+  select(-c(income_decile)) %>% 
+  as.data.table()
 
-# Produce final DIA table
-di_results_quintile <- final_di %>% 
-  group_by(income_quintile) %>% 
-  summarise(lsoas = n(),
-            total_user_bens = sum(total_user_bens) / 60,
-            total_pop = sum(lsoa_pop)) %>% 
-  mutate(share_user_bens = total_user_bens / sum(total_user_bens),
-         share_pop = total_pop / sum(total_pop)) %>% 
-  mutate(grade = case_when(
-    total_user_bens > 0 & share_user_bens - share_pop >= 0.05 ~ "+3",
-    total_user_bens > 0 & share_user_bens - share_pop >= -0.05 ~ "+2",
-    total_user_bens > 0 & share_user_bens - share_pop < -0.05 ~ "+1",
-    total_user_bens == 0 ~ "0",
-    total_user_bens < 0 & share_user_bens - share_pop >= 0.05 ~ "-3",
-    total_user_bens < 0 & share_user_bens - share_pop >= -0.05 ~ "-2",
-    total_user_bens < 0 & share_user_bens - share_pop <= -0.05 ~ "-1",
-    TRUE ~ NA_character_
-  ))
-
-di_results_quintile <- di_results_quintile[,c(1,3:7)]
-
-# Save a formatted version of the final DI table
-di_table <- t(di_results_quintile)
-di_table <- gt(di_results_quintile) %>%
-  tab_stubhead(label = "Quintile") %>% 
-  fmt_integer(
-    columns = c(1:3),
-    accounting = T
-  ) %>% 
-  fmt_percent(
-    columns = c(4:5),
-    decimals = 0
-  ) %>%
-  cols_label(
-    income_quintile = "Income Deprivation Quintile",
-    total_user_bens = "User benefits",
-    total_pop = "Population",
-    share_user_bens  = "Share of user benefits",
-    share_pop = "Share of population",
-    grade = "Assessment"
-    ) %>%
-  tab_header(title = "User Benefits Distributional Analysis",
-             subtitle = "Worked Example") %>% 
-  tab_source_note(
-    source_note = "Data sources: scheme impacts based on TRU scenario OBC2 Opt F_Cr v3; 2019 LSOA mid-year population (ONS); 2011 LSOA population-weighted centroids (ONS); values of time by journey purpose from TAG Data Book v.1.20.2 (Jan 2023); 2019 LSOA income deprivation deciles (MHCLG)."
-  )
-
-# Show formatted DI results table
-di_table
+head(imd)
 ```
 
 
-::: {.callout-tip}
-## Important note
+Finally, we import a dataset containing the coordinates of all (2011 definition) LSOA population-weighted centroids in England and Wales in 2022. 
 
-The current worked example doesn't use a dataset with the details (incl. coordinates) of every station in MOIRA. Therefore, there's an inconsistency between the station codes in the TRU spreadsheet and the UK stations data that's currently used which means that a sizeable number of LSOAs (around 19k) can't be reliably be assigned to a TRU station.
+```{r, eval = TRUE}
+# Read data on 2021 LSOA population-weighted centroids
+# Source: https://geoportal.statistics.gov.uk/datasets/ons::lsoa-dec-2021-pwc-for-england-and-wales/explore
+lsoa_pwc_filename <- "LSOA_Dec_2011_PWC_in_England_and_Wales_2022_1923591000694358693.csv"
+lsoa_pwc <- readr::read_csv(glue("{here()}/data/{lsoa_pwc_filename}")) %>% 
+  janitor::clean_names() %>% 
+  filter(!(stringr::str_sub(lsoa11cd, 1, 1) == "W")) %>%  # exclude Welsh LSOAs
+  select(lsoa11cd, x, y)
 
-This inconsistency may not significantly affect the final results of the worked example, but it would obviously be preferable (and simpler) to start with comprehensive data on all MOIRA stations. That would eliminate this inconsistency, and would also make it easier to test the robustness of the LSOA assignment step. 
+head(lsoa_pwc)
+```
+
+
+```{r, eval=FALSE, include = FALSE}
+# Read in boundary data
+
+# Boundary data filenames
+lsoa_pwc_boundaries <- "LSOA_Dec_2021_PWC_for_England_and_Wales_2022_-7534040603619445107.geojson"
+lsoa_boundaries <- "LSOA_Dec_2021_Boundaries_Generalised_Clipped_EW_BGC_V2_4490519673986712129.geojson"
+lad_boundaries <- "Local_Authority_Districts_May_2023_UK_BGC_7031345015360699935.geojson"
+region_boundaries <- "Regions_December_2022_EN_BGC_4589208765943883498.geojson" # England only
+country_boundaries <- "Countries_December_2022_GB_BGC_4494908105953014587.geojson"
+
+# Read GeoJSON files
+lsoas <- geojsonio::geojson_read(glue("{here()}/data/{lsoa_boundaries}"), what = "sp")
+lsoa_pwcs <- geojsonio::geojson_read(glue("{here()}/data/{lsoa_pwc_boundaries}"), what = "sp")
+lads <- geojsonio::geojson_read(glue("{here()}/data/{lad_boundaries}"), what = "sp")
+regions <- geojsonio::geojson_read(glue("{here()}/data/{region_boundaries}"), what = "sp")
+countries <- geojsonio::geojson_read(glue("{here()}/data/{country_boundaries}"), what = "sp")
+```
+
+
+At this stage, we can plot our scheme benefits data (by station) on a map. 
+
+
+```{r map_options, include = FALSE}
+tmap_options(check.and.fix = T)
+tmap_mode("view")
+```
+
+
+```{r, eval = TRUE, include = TRUE}
+# Make bubble map of user benefits by modelled station
+stations %>% 
+  sf::st_as_sf(coords = c("easting", "northing"), crs = 27700) %>%
+  tm_shape(.) +
+  tm_bubbles(size = "gjtc", col = "blue", alpha = 0.2)
+```
+
+We continue with our analysis by assigning user benefits to LSOAs, which requires identifying all pairs of modelled stations and population-weighted LSOA centroids within `r paste0(station_buffer)`m of each other. Each LSOA that is paired with a modelled station in this way is then assigned a portion of the station's user benefits based on its share of the total population across all station-paired LSOAs.
+
+::: {.callout-note}
+This is undoubtedly the most computationally taxing step in the process, but we can exploit the speed of the [**data.table**](https://rdatatable.gitlab.io/data.table/) package to avoid memory-related issues. This works successfully for our worked example - which has 716 modelled stations - where this step is implemented within 5-10 seconds. However, further testing will be required to determine whether the step can be completed successfully for schemes with many more modelled stations.  
 :::
 
 
+```{r}
+stations <- as.data.table(stations)
+lsoa_pwc <- as.data.table(lsoa_pwc)
 
-## Next steps
+station_pairs <- vector("list", nrow(stations))
 
-- Replace stations data with MOIRA dataset
-- Test LSOA assignment method with spot-checks
-- Revise data-processing steps to accommodate non-TRU inputs
-- Modularise code through functions
-- Convert to R package
-- Add unit tests (?)
-- Add
+for(s in seq(1:nrow(stations))){
+  station_pairs[[s]] <- as.data.table(stations[s,])[, as.list(lsoa_pwc), 
+                                                    by = stations[s,]]
+  station_pairs[[s]] <- station_pairs[[s]][, 
+                                           dist := (((easting - x)^2) + ((northing - y)^2)) ^ 0.5
+                                           ][dist <= station_buffer]
+  if(s %% 100 == 0){cli::cli_inform("Processed {s}/{nrow(stations)} stations")}
+}
+
+final <- rbindlist(station_pairs)
+rm(station_pairs)
+
+# Show first few lines of final dataset
+head(final)
+```
+
+
+Now that we've obtained a dataset showing scheme user benefits by LSOA, for all LSOAs with population-weighted centroids within `r paste0(station_buffer)`m of a modelled station, we can add our other LSOA variables (population and income deprivation quintile) before calculating each LSOA's share of its paired station's population and associated user benefits.
+
+Then we aggregate the data by income deprivation quintile and produce our final user benefits DI table.
+
+```{r, eval = TRUE}
+
+# Add LSOA income deprivation quintile and 2020 population data 
+final <- final[imd, 
+               on = "lsoa11cd", 
+               income_quintile := i.income_quintile][
+                 lsoa_pop,
+                 on = "lsoa11cd",
+                 pop := i.pop
+               ] %>% 
+  as_tibble() %>%
+  
+  # Calculate total station population (across paired LSOAs)
+  group_by(tlc) %>% 
+  mutate(sta_pop = sum(pop)) %>%  
+  ungroup() %>% 
+  
+  # Calculate LSOA population shares
+  # And then LSOA benefits (based on pop. shares)
+  mutate(pop_share = pop / sta_pop,
+         lsoa_bens = gjtc * pop_share) %>% 
+  filter(!if_any(everything(), is.na))
+
+# Produce final DI table per TAG A4.2
+final %>% 
+  group_by(income_quintile) %>% 
+  summarise(lsoas = n(),
+            bens = sum(lsoa_bens),
+            pop = sum(pop)) %>% 
+  mutate(share_bens = bens / sum(bens),
+         share_pop = pop / sum(pop)) %>% 
+  mutate(grade = case_when(
+    share_bens > 0 & share_bens - share_pop >= 0.05 ~ "✔✔✔",
+    share_bens > 0 & share_bens - share_pop >= -0.05 ~ "✔✔",
+    share_bens > 0 & share_bens - share_pop < -0.05 ~ "✔",
+    share_bens == 0 ~ "Neutral",
+    share_bens < 0 & share_bens - share_pop >= 0.05 ~ "❌❌❌",
+    share_bens < 0 & share_bens - share_pop >= -0.05 ~ "❌❌",
+    share_bens < 0 & share_bens - share_pop <= -0.05 ~ "❌",
+    TRUE ~ NA_character_
+  )) %>% 
+  mutate(bens = bens / 1000000,
+         pop = pop / 1000000) %>% 
+  
+  # Make table
+  gt() %>%
+  
+  # Amend column formats
+  fmt_number(columns = 2, decimals = 0) %>% 
+  fmt_number(columns = c(3:4), decimals = 1) %>% 
+  fmt_percent(columns = c(5:6), decimals = 0) %>%
+  
+  # Amend column labels
+  cols_label(
+    income_quintile = "Income Deprivation Quintile",
+    lsoas = "LSOAs",
+    bens = "User benefits",
+    pop = "Population",
+    share_bens  = "Share of user benefits",
+    share_pop = "Share of population in impact area",
+    grade = "Grade"
+    ) %>%
+  
+  # Table header
+  tab_header(title = "User Benefits Distributional Analysis") %>% 
+  
+  # Add table footnotes
+  tab_footnote(
+    footnote = "1 = most deprived quintile; 5 = least deprived quintile.",
+    locations = cells_column_labels(columns = income_quintile)
+  ) %>% 
+  tab_footnote(
+    footnote = "£m, 2010 prices, for a specific modelled year and scenario.",
+    locations = cells_column_labels(columns = bens)
+  ) %>% 
+  tab_footnote(
+    footnote = glue("Summed across all English LSOAs in each quintile with a population-weighted centroid within {station_buffer}m of a scheme-modelled station."),
+    locations = cells_column_labels(columns = pop)
+  ) %>% 
+  
+  # Add/format summary totals
+  grand_summary_rows(
+    columns = c(lsoas),
+    fns = list(Total = ~sum(., na.rm = T)),
+    fmt = list(~fmt_integer(.))
+  ) %>% 
+  grand_summary_rows(
+    columns = c(bens, pop, share_bens, share_pop),
+    fns = list(Total = ~sum(., na.rm = T)),
+    fmt = list(
+        ~fmt_number(., decimals = 1),
+        ~fmt_number(., decimals = 1)
+      )
+  ) %>% 
+  grand_summary_rows(
+    columns = c(share_bens, share_pop),
+    fns = list(Total = ~sum(., na.rm = T)),
+    fmt = list(
+        ~fmt_percent(., decimals = 0),
+         ~fmt_percent(., decimals = 0)
+      )
+  )
+```
+
 
 
 
